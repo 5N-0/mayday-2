@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, Suspense } from 'react';
 import Experience from './components/Experience';
 import GestureController from './components/GestureController';
 import { TreeColors, HandGesture } from './types';
@@ -192,13 +192,15 @@ const App: React.FC = () => {
       {/* 3D Scene */}
       {/* Layer: z-10 (Foreground layer, tree renders on top of text) */}
       <div className={`absolute inset-0 z-10 transition-all duration-700 ${isSignatureOpen ? 'blur-sm scale-95 opacity-50' : 'blur-0 scale-100 opacity-100'}`}>
-        <Experience 
-            mixFactor={targetMix}
-            colors={colors} 
-            inputRef={inputRef} 
-            userImages={userImages}
-            signatureText={signatureText}
-        />
+        <Suspense fallback={null}>
+            <Experience 
+                mixFactor={targetMix}
+                colors={colors} 
+                inputRef={inputRef} 
+                userImages={userImages}
+                signatureText={signatureText}
+            />
+        </Suspense>
       </div>
 
       {/* SIGNATURE MODAL OVERLAY */}

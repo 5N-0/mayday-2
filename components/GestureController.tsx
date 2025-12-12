@@ -25,10 +25,10 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const lastDetectionTime = useRef(0);
   
   // STABILIZATION REFS
-  const ratioHistory = useRef<number[]>([]); // Store last N ratios for smoothing
-  const posHistory = useRef<{x:number, y:number}[]>([]); // Store last N positions for smoothing
-  const isCurrentlyOpen = useRef<boolean>(false); // Track internal state for hysteresis
-  const missedFrames = useRef(0); // Debounce for tracking loss
+  const ratioHistory = useRef<number[]>([]); 
+  const posHistory = useRef<{x:number, y:number}[]>([]); 
+  const isCurrentlyOpen = useRef<boolean>(false); 
+  const missedFrames = useRef(0); 
 
   // Load Model
   useEffect(() => {
@@ -36,18 +36,17 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
     
     const loadModel = async () => {
       try {
-        setLoadingMessage("Connecting to GPU...");
-        await (tf as any).ready();
+        if (isMounted) setLoadingMessage("Initializing AI...");
         
-        if (isMounted) setLoadingMessage("Loading Local AI Model...");
+        // Removed explicit tf.ready() check as it caused TS issues.
+        // handpose.load() handles backend initialization internally.
         
-        // Fix: Use absolute path for model to ensure it loads in production
-        const LOCAL_MODEL_URL = '/models/handpose/model.json';
-
-        // Fix: Cast configuration to any to bypass type check for modelUrl support
-        const net = await handpose.load({
-            modelUrl: LOCAL_MODEL_URL
-        } as any);
+        if (isMounted) setLoadingMessage("Downloading AI Model...");
+        
+        // FIX: Removed local modelUrl to default to Google's CDN.
+        // This prevents crashes if local .bin weight files are missing or paths are wrong.
+        // This is much safer for production.
+        const net = await handpose.load();
         
         if (isMounted) {
           setModel(net);
@@ -56,16 +55,18 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
       } catch (err) {
         console.error("Failed to load handpose model:", err);
         if (isMounted) {
-            setLoadingMessage("Network Error: Check Connection");
+            setLoadingMessage("AI Offline (Check Internet)");
+            // Do not block the app, just fail gracefully
+            setLoading(false);
         }
       }
     };
 
     const timeoutId = setTimeout(() => {
         if (loading && isMounted) {
-            setLoadingMessage("Downloading (First Run Takes Time)...");
+            setLoadingMessage("Still Loading (First Run)...");
         }
-    }, 5000);
+    }, 8000);
 
     loadModel();
 
@@ -80,7 +81,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
     if (model && webcamRef.current && webcamRef.current.video && webcamRef.current.video.readyState === 4) {
       
       const now = Date.now();
-      // Throttle detection to every 100ms (~10 FPS) to free up GPU for 3D rendering
+      // Throttle detection to every 100ms (~10 FPS)
       if (now - lastDetectionTime.current < 100) {
         requestAnimationFrame(runDetection);
         return;
@@ -89,7 +90,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
 
       const video = webcamRef.current.video;
       
-      // Safety Check: Video Dimensions
       if (video.videoWidth === 0 || video.videoHeight === 0) {
           requestAnimationFrame(runDetection);
           return;
@@ -185,8 +185,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
     }
   }, [model, loading, runDetection]);
 
-  // Constrain mobile size strictly to w-28 h-36 (Portrait) 
-  // IMPORTANT: Do NOT add w-full h-full to the inner div, it will cause the video to expand to intrinsic size.
   const boxStyle = "w-28 h-36 md:w-48 md:h-36 rounded-lg border-[#d4af37]/50 bg-black/90 border overflow-hidden shadow-[0_0_20px_rgba(212,175,55,0.2)]";
 
   return (
@@ -200,15 +198,21 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           {cameraError ? (
              <div className="flex flex-col items-center justify-center h-full text-[#d4af37] p-2 text-center gap-2">
                 <span className="text-xl">📷</span>
-                <span className="text-[10px] font-luxury uppercase tracking-widest">Camera Unavailable</span>
-                <span className="text-[9px] text-white/50">Use mouse instead</span>
+                <span className="text-[10px] font-luxury uppercase tracking-widest">Camera Denied</span>
              </div>
           ) : (
             <>
                 <Webcam
                     ref={webcamRef}
                     mirrored={true}
-                    videoConstraints={{ facingMode: "user" }}
+                    playsInline={true} 
+                    muted={true}
+                    videoConstraints={{ 
+                        facingMode: "user",
+                        // Force lower resolution for performance
+                        width: { ideal: 320 },
+                        height: { ideal: 240 }
+                    }}
                     className={`w-full h-full object-cover transition-opacity duration-500 ${loading ? 'opacity-20' : 'opacity-80'}`}
                     onUserMediaError={() => setCameraError(true)}
                 />
