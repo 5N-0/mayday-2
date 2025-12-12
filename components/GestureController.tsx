@@ -41,9 +41,8 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
         
         if (isMounted) setLoadingMessage("Loading Local AI Model...");
         
-        // In Vite, files in 'public/' are served at root '/'.
-        // So 'public/models/...' becomes 'models/...'
-        const LOCAL_MODEL_URL = 'models/handpose/model.json';
+        // Fix: Use absolute path for model to ensure it loads in production
+        const LOCAL_MODEL_URL = '/models/handpose/model.json';
 
         // Fix: Cast configuration to any to bypass type check for modelUrl support
         const net = await handpose.load({
