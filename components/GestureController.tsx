@@ -15,7 +15,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const [loading, setLoading] = useState(true);
   const [cameraError, setCameraError] = useState(false);
   const [debugState, setDebugState] = useState<string>("-");
-  const [loadingMessage, setLoadingMessage] = useState("Initializing AI Engine...");
+  const [loadingMessage, setLoadingMessage] = useState("Initializing AI...");
   
   const onGestureRef = useRef(onGesture);
   useEffect(() => {
@@ -36,16 +36,18 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
     
     const loadModel = async () => {
       try {
-        if (isMounted) setLoadingMessage("Initializing AI...");
+        if (isMounted) setLoadingMessage("Connecting to GPU...");
         
-        // Removed explicit tf.ready() check as it caused TS issues.
-        // handpose.load() handles backend initialization internally.
+        // Ensure backend is ready
+        await tf.ready().catch(() => tf.setBackend('webgl'));
+        
+        // Ensure backend is ready
+        await tf.ready();
         
         if (isMounted) setLoadingMessage("Downloading AI Model...");
         
-        // FIX: Removed local modelUrl to default to Google's CDN.
-        // This prevents crashes if local .bin weight files are missing or paths are wrong.
-        // This is much safer for production.
+        // CRITICAL FIX: Load from CDN to guarantee availability in production
+        // Do NOT use local paths unless you are 100% sure the .bin files are in public/models
         const net = await handpose.load();
         
         if (isMounted) {
@@ -55,18 +57,19 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
       } catch (err) {
         console.error("Failed to load handpose model:", err);
         if (isMounted) {
-            setLoadingMessage("AI Offline (Check Internet)");
-            // Do not block the app, just fail gracefully
+            setLoadingMessage("AI Unavailable");
+            // Don't crash, just stop loading
             setLoading(false);
         }
       }
     };
 
+    // Timeout safety - if model takes too long, stop blocking UI
     const timeoutId = setTimeout(() => {
         if (loading && isMounted) {
-            setLoadingMessage("Still Loading (First Run)...");
+            setLoadingMessage("Taking longer than expected...");
         }
-    }, 8000);
+    }, 6000);
 
     loadModel();
 
@@ -78,10 +81,11 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
 
   // Loop
   const runDetection = useCallback(async () => {
+    // Only run if model exists and camera is ready
     if (model && webcamRef.current && webcamRef.current.video && webcamRef.current.video.readyState === 4) {
       
       const now = Date.now();
-      // Throttle detection to every 100ms (~10 FPS)
+      // Throttle detection to every 100ms (~10 FPS) to save battery/performance
       if (now - lastDetectionTime.current < 100) {
         requestAnimationFrame(runDetection);
         return;
@@ -90,6 +94,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
 
       const video = webcamRef.current.video;
       
+      // Safety Check: Video Dimensions
       if (video.videoWidth === 0 || video.videoHeight === 0) {
           requestAnimationFrame(runDetection);
           return;
@@ -105,12 +110,13 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           const landmarks = hand.landmarks;
           const wrist = landmarks[0];
 
-          if (!wrist || !Number.isFinite(wrist[0]) || !Number.isFinite(wrist[1])) {
+          if (!wrist) {
               requestAnimationFrame(runDetection);
               return;
           }
 
           // --- 1. Position Calculation ---
+          // Normalize to -1 to 1 range
           const rawX = -1 * ((wrist[0] / video.videoWidth) * 2 - 1); 
           const rawY = -1 * ((wrist[1] / video.videoHeight) * 2 - 1);
           
@@ -146,6 +152,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           if (ratioHistory.current.length > 5) ratioHistory.current.shift();
           const smoothedRatio = ratioHistory.current.reduce((a,b) => a+b, 0) / ratioHistory.current.length;
 
+          // Hysteresis threshold
           if (!isCurrentlyOpen.current && smoothedRatio > 1.6) {
              isCurrentlyOpen.current = true;
           } else if (isCurrentlyOpen.current && smoothedRatio < 1.2) {
@@ -172,7 +179,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           }
         }
       } catch (err) {
-        // Suppress ephemeral errors
+        // Suppress ephemeral errors during heavy load
       }
     }
     requestAnimationFrame(runDetection);
@@ -198,18 +205,18 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           {cameraError ? (
              <div className="flex flex-col items-center justify-center h-full text-[#d4af37] p-2 text-center gap-2">
                 <span className="text-xl">📷</span>
-                <span className="text-[10px] font-luxury uppercase tracking-widest">Camera Denied</span>
+                <span className="text-[10px] font-luxury uppercase tracking-widest">Access Denied</span>
              </div>
           ) : (
             <>
                 <Webcam
                     ref={webcamRef}
                     mirrored={true}
+                    // IMPORTANT for Safari on iOS: playsInline and muted are required for auto-play
                     playsInline={true} 
                     muted={true}
                     videoConstraints={{ 
                         facingMode: "user",
-                        // Force lower resolution for performance
                         width: { ideal: 320 },
                         height: { ideal: 240 }
                     }}
