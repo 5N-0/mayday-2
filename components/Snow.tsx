@@ -92,8 +92,9 @@ const Snow: React.FC<{ mixFactor: number }> = ({ mixFactor }) => {
      if (materialRef.current && pointsRef.current) {
          currentMixRef.current = lerp(currentMixRef.current, mixFactor, delta * 2.0);
          
-         materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
-         materialRef.current.uniforms.uMix.value = currentMixRef.current;
+         // Fix TS errors via bracket notation
+         materialRef.current.uniforms['uTime'].value = state.clock.elapsedTime;
+         materialRef.current.uniforms['uMix'].value = currentMixRef.current;
 
          pointsRef.current.position.x = camera.position.x;
          pointsRef.current.position.y = camera.position.y;

@@ -104,11 +104,12 @@ const Foliage: React.FC<FoliageProps> = ({ mixFactor, colors }) => {
       const speed = 2.0 * delta; 
       currentMixRef.current = lerp(currentMixRef.current, mixFactor, speed);
 
-      materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
-      materialRef.current.uniforms.uMix.value = currentMixRef.current;
+      // Fix TS errors by using bracket notation or casting
+      materialRef.current.uniforms['uTime'].value = state.clock.elapsedTime;
+      materialRef.current.uniforms['uMix'].value = currentMixRef.current;
       
-      materialRef.current.uniforms.uColorBottom.value.set(colors.bottom);
-      materialRef.current.uniforms.uColorTop.value.set(colors.top);
+      materialRef.current.uniforms['uColorBottom'].value.set(colors.bottom);
+      materialRef.current.uniforms['uColorTop'].value.set(colors.top);
     }
   });
 
