@@ -12,25 +12,27 @@
       .font-body { font-family: 'Playfair Display', serif; }
       .font-script { font-family: 'Monsieur La Doulaise', cursive; }
     </style>
-  <script type="importmap">
+<script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react/": "https://esm.sh/react@18.2.0/",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?external=react",
-    "three": "https://esm.sh/three@0.160.0",
-    "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.16?external=react,react-dom,three",
-    "@react-three/drei": "https://esm.sh/@react-three/drei@9.99.0?external=react,react-dom,three,@react-three/fiber",
-    "@react-three/postprocessing": "https://esm.sh/@react-three/postprocessing@2.16.0?external=react,react-dom,three,@react-three/fiber",
-    "@tensorflow/tfjs": "https://esm.sh/@tensorflow/tfjs@4.17.0",
-    "@tensorflow-models/handpose": "https://esm.sh/@tensorflow-models/handpose@0.1.0?external=@tensorflow/tfjs",
-    "react-webcam": "https://esm.sh/react-webcam@7.2.0?external=react,react-dom",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/"
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "three": "https://esm.sh/three@^0.182.0",
+    "@react-three/drei": "https://esm.sh/@react-three/drei@^10.7.7",
+    "@react-three/fiber": "https://esm.sh/@react-three/fiber@^9.4.2",
+    "@react-three/postprocessing": "https://esm.sh/@react-three/postprocessing@^3.0.4",
+    "vite": "https://esm.sh/vite@^7.2.7",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "@tensorflow/tfjs": "https://esm.sh/@tensorflow/tfjs@^4.22.0",
+    "@tensorflow-models/handpose": "https://esm.sh/@tensorflow-models/handpose@^0.1.0",
+    "react-webcam": "https://esm.sh/react-webcam@^7.2.0"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
