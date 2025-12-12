@@ -255,12 +255,11 @@ const SceneContent: React.FC<ExperienceProps> = ({ mixFactor, colors, inputRef, 
       <pointLight position={[0, 10, 10]} intensity={0.5} color="#ffffff" />
       
       {/* 
-        NOTE: Using absolute path '/hdri/...' ensures assets load correctly in production 
+        FIX: Use preset="city" (standard studio lighting) which loads from a reliable CDN.
+        This bypasses the local .hdr file which was causing 'Bad File Format' production crashes.
       */}
-      <Environment 
-        files='/hdri/potsdamer_platz_1k.hdr'
-        background={false} 
-      />
+      <Environment preset="city" background={false} />
+      
       <Stars radius={100} depth={50} count={3000} factor={4} saturation={0} fade speed={1} />
 
       <Snow mixFactor={mixFactor} />

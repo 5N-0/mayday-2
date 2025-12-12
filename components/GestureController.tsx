@@ -39,10 +39,10 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
         if (isMounted) setLoadingMessage("Connecting to GPU...");
         
         // Ensure backend is ready
-        await tf.ready().catch(() => tf.setBackend('webgl'));
+        await (tf as any).ready().catch(() => (tf as any).setBackend('webgl'));
         
         // Ensure backend is ready
-        await tf.ready();
+        await (tf as any).ready();
         
         if (isMounted) setLoadingMessage("Downloading AI Model...");
         
