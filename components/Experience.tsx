@@ -255,10 +255,14 @@ const SceneContent: React.FC<ExperienceProps> = ({ mixFactor, colors, inputRef, 
       <pointLight position={[0, 10, 10]} intensity={0.5} color="#ffffff" />
       
       {/* 
-        FIX: Use preset="city" (standard studio lighting) which loads from a reliable CDN.
-        This bypasses the local .hdr file which was causing 'Bad File Format' production crashes.
+        CRITICAL FIX: DIRECT CDN URL for HDRI.
+        The 'preset' prop often uses GitHub Raw URLs which can be blocked in some regions or fail to fetch.
+        Using dl.polyhaven.org guarantees high availability and fixes the "Failed to fetch" crash.
       */}
-      <Environment preset="city" background={false} />
+      <Environment 
+        files="https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" 
+        background={false} 
+      />
       
       <Stars radius={100} depth={50} count={3000} factor={4} saturation={0} fade speed={1} />
 

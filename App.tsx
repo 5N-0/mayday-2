@@ -327,8 +327,7 @@ const App: React.FC = () => {
       {/* Footer Info (Bottom Left) */}
       <div className={`absolute bottom-6 left-6 z-20 pointer-events-none transition-opacity duration-500 ${isSignatureOpen ? 'opacity-0' : 'opacity-100'}`}>
             <div className="text-white/20 text-[10px] uppercase tracking-widest font-luxury">
-                <div>一颗美丽的圣诞树</div>
-                <div className="text-slate-500">Made by Southpl</div>
+                <div className="text-slate-500">Made by 5N-0</div>
             </div>
       </div>
 

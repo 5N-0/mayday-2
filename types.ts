@@ -18,3 +18,9 @@ declare global {
     interface IntrinsicElements extends ThreeElements {}
   }
 }
+
+declare module 'react' {
+  namespace JSX {
+    interface IntrinsicElements extends ThreeElements {}
+  }
+}
