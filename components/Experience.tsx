@@ -17,6 +17,7 @@ interface ExperienceProps {
   inputRef: React.MutableRefObject<{ x: number, y: number, isDetected?: boolean }>;
   userImages?: string[];
   signatureText?: string;
+  closestPhotoRef?: React.MutableRefObject<number>;
 }
 
 // COLORS FOR REALISTIC OBJECTS
@@ -239,7 +240,7 @@ const SceneController: React.FC<{
     return null;
 };
 
-const SceneContent: React.FC<ExperienceProps> = ({ mixFactor, colors, inputRef, userImages, signatureText }) => {
+const SceneContent: React.FC<ExperienceProps> = ({ mixFactor, colors, inputRef, userImages, signatureText, closestPhotoRef }) => {
   const groupRef = useRef<THREE.Group>(null);
   
   const photoCount = (userImages && userImages.length > 0) ? userImages.length : 10;
@@ -254,11 +255,6 @@ const SceneContent: React.FC<ExperienceProps> = ({ mixFactor, colors, inputRef, 
       <pointLight position={[10, -5, 10]} intensity={1.2} color="#ff0000" />
       <pointLight position={[0, 10, 10]} intensity={0.5} color="#ffffff" />
       
-      {/* 
-        CRITICAL FIX: DIRECT CDN URL for HDRI.
-        The 'preset' prop often uses GitHub Raw URLs which can be blocked in some regions or fail to fetch.
-        Using dl.polyhaven.org guarantees high availability and fixes the "Failed to fetch" crash.
-      */}
       <Environment 
         files="https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr" 
         background={false} 
@@ -314,6 +310,7 @@ const SceneContent: React.FC<ExperienceProps> = ({ mixFactor, colors, inputRef, 
             count={photoCount} 
             userImages={userImages}
             signatureText={signatureText}
+            closestPhotoRef={closestPhotoRef} // Pass reference down
         />
       </group>
 
@@ -334,8 +331,6 @@ const Experience: React.FC<ExperienceProps> = (props) => {
   return (
     <Canvas
       dpr={[1, 1.25]} 
-      // OPTIMIZATION: Tighten near/far planes to increase depth buffer precision on mobile.
-      // 5-80 covers the tree nicely (centered at 0, camera at 32).
       camera={{ position: [0, 0, 32], fov: 45, near: 5, far: 80 }}
       gl={{ antialias: false, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
       shadows

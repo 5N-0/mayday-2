@@ -1,6 +1,6 @@
 
 import React, { useMemo, useRef, useLayoutEffect } from 'react';
-import { useFrame, useLoader } from '@react-three/fiber';
+import { useFrame, useLoader, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { lerp, randomVector3 } from '../utils/math';
 
@@ -22,6 +22,7 @@ interface OrnamentsProps {
   scale?: number;
   userImages?: string[];
   signatureText?: string;
+  closestPhotoRef?: React.MutableRefObject<number>; // New prop for reporting closest photo
 }
 
 // --- Procedural Geometry Generators ---
@@ -81,7 +82,6 @@ const generateCandyStripeTexture = () => {
     ctx.fillStyle = '#cc0000'; // Classic darker red
     
     // Draw diagonal stripes
-    // To create a seamless spiral on the tube, we draw diagonal lines.
     // 3 stripes per tile
     for (let i = -128; i < 256; i += 42) {
         ctx.beginPath();
@@ -174,10 +174,6 @@ const PhotoFrameMesh: React.FC<{
         const fh = ph + mTop + mBottom;
         const py = (fh / 2) - mTop - (ph / 2);
         
-        // Text Position: Bottom whitespace center
-        // Frame goes from -fh/2 to fh/2
-        // Bottom edge is -fh/2
-        // Text center should be -fh/2 + mBottom/2
         const ty = -(fh / 2) + (mBottom / 2);
 
         return {
@@ -200,16 +196,11 @@ const PhotoFrameMesh: React.FC<{
         
         vecScale.lerpVectors(item.chaosScale, item.targetScale, t);
 
-        // --- Responsive Scaling Logic ---
-        // Get the current viewport width from state (in 3D units at z=0)
         const { width } = state.viewport;
-        // Determine if screen is "small" (mobile/tablet portrait)
         const isSmallScreen = width < 22; 
         
-        // Scale down photos on small screens to fit better
         const responsiveBaseScale = isSmallScreen ? 0.6 : 1.0;
         vecScale.multiplyScalar(responsiveBaseScale);
-        // --------------------------------
         
         const effectStrength = (1.0 - t);
         
@@ -217,8 +208,6 @@ const PhotoFrameMesh: React.FC<{
              groupRef.current.getWorldPosition(vecWorld);
              const distToCamera = vecWorld.distanceTo(state.camera.position);
              
-             // Dynamic zoom adjustment:
-             // On mobile, reduce the max zoom when close to avoid overwhelming the screen
              const maxZoom = isSmallScreen ? 1.1 : 1.5; 
              const minZoom = 0.6;
 
@@ -249,7 +238,6 @@ const PhotoFrameMesh: React.FC<{
     return (
         <group ref={groupRef}>
             <group ref={innerRef}>
-                {/* Frame */}
                 <mesh>
                     <boxGeometry args={frameArgs} />
                     <meshStandardMaterial 
@@ -262,7 +250,6 @@ const PhotoFrameMesh: React.FC<{
                         toneMapped={false} 
                     />
                 </mesh>
-                {/* Photo */}
                 <mesh position={photoPos}>
                     <planeGeometry args={photoArgs} />
                     <meshStandardMaterial 
@@ -277,7 +264,6 @@ const PhotoFrameMesh: React.FC<{
                         toneMapped={false} 
                     />
                 </mesh>
-                {/* Signature Text Plane */}
                 {signatureTexture && (
                     <mesh position={textPos}>
                         <planeGeometry args={textArgs} />
@@ -285,7 +271,7 @@ const PhotoFrameMesh: React.FC<{
                             map={signatureTexture}
                             transparent={true}
                             opacity={0.85}
-                            depthWrite={false} // Prevent z-fighting glitch with frame
+                            depthWrite={false} 
                         />
                     </mesh>
                 )}
@@ -305,21 +291,16 @@ const GiftBoxMesh: React.FC<{
     const vecPos = useMemo(() => new THREE.Vector3(), []);
     const vecScale = useMemo(() => new THREE.Vector3(), []);
     
-    // Auto-detect ribbon color for contrast
     const { ribbonColor, ribbonMaterial } = useMemo(() => {
         const c = item.color;
         const luminance = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
         
-        let ribColorStr = "#FFD700"; // Default Gold
+        let ribColorStr = "#FFD700"; 
         
-        // Logic for ribbon color selection:
-        // If box is very blue/cool, use Silver ribbon.
-        // If box is bright/white/gold, use Red ribbon.
-        // Otherwise (Dark Red/Green), use Gold ribbon.
         if (c.b > c.r + 0.2 && c.b > c.g + 0.2) {
-             ribColorStr = "#E0E0E0"; // Silver
+             ribColorStr = "#E0E0E0"; 
         } else if (luminance > 0.6) {
-             ribColorStr = "#AA0000"; // Red
+             ribColorStr = "#AA0000"; 
         }
 
         return {
@@ -356,7 +337,6 @@ const GiftBoxMesh: React.FC<{
 
     return (
         <group ref={groupRef}>
-            {/* Box Body */}
             <mesh castShadow receiveShadow>
                 <boxGeometry args={[1, 1, 1]} />
                 <meshStandardMaterial 
@@ -365,18 +345,12 @@ const GiftBoxMesh: React.FC<{
                     metalness={0.1}
                 />
             </mesh>
-            
-            {/* Ribbon 1 (X-Loop) */}
             <mesh scale={[0.2, 1.01, 1.01]} material={ribbonMaterial}>
                 <boxGeometry args={[1, 1, 1]} />
             </mesh>
-
-            {/* Ribbon 2 (Z-Loop) */}
             <mesh scale={[1.01, 1.01, 0.2]} material={ribbonMaterial}>
                 <boxGeometry args={[1, 1, 1]} />
             </mesh>
-            
-            {/* Bow Knot */}
             <mesh position={[0, 0.5, 0]} rotation={[0, Math.PI / 4, 0]} material={ribbonMaterial} scale={[0.35, 0.35, 0.35]}>
                  <torusKnotGeometry args={[0.6, 0.15, 64, 8, 2, 3]} />
             </mesh>
@@ -421,7 +395,6 @@ const SuspensePhotoOrnament = (props: any) => {
     )
 }
 
-// Defines phase offsets for different ornament types to prevent overlap
 const getTypeOffsetIndex = (type: string) => {
     switch(type) {
         case 'BALL': return 0;
@@ -434,18 +407,17 @@ const getTypeOffsetIndex = (type: string) => {
     }
 }
 
-const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, scale = 1, userImages = [], signatureText }) => {
+const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, scale = 1, userImages = [], signatureText, closestPhotoRef }) => {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const currentMixRef = useRef(1);
+  const { camera } = useThree();
 
   const candyTexture = useMemo(() => {
       if (type === 'CANDY') return generateCandyStripeTexture();
       return null;
   }, [type]);
 
-  // Generate signature texture
-  // Only generate if type is PHOTO and we have text
   const signatureTexture = useMemo(() => {
       if (type === 'PHOTO' && signatureText) {
           return generateSignatureTexture(signatureText);
@@ -453,12 +425,11 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
       return null;
   }, [type, signatureText]);
 
-  // Generate specific geometry based on type
   const geometry = useMemo(() => {
       switch(type) {
           case 'CANDY':
               return createCandyCaneGeometry();
-          case 'CRYSTAL': // Snowflake
+          case 'CRYSTAL': 
               return createStarGeometry(6, 1.0, 0.3, 0.1); 
           case 'STAR':
               return createStarGeometry(5, 1.0, 0.5, 0.2);
@@ -473,54 +444,36 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
   const data = useMemo(() => {
     const items: OrnamentData[] = [];
     
-    // Golden Spiral Constants
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~2.399 rads
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5)); 
     const treeHeight = 18;
     const treeRadiusBase = 7.5;
-    const apexY = 9; // Top of the foliage volume
+    const apexY = 9; 
     
-    // Phase offset per type to avoid different ornaments overlapping
     const typeIndex = getTypeOffsetIndex(type);
-    const angleOffset = typeIndex * (Math.PI * 2 / 6); // Spread 6 types over 360 deg
+    const angleOffset = typeIndex * (Math.PI * 2 / 6); 
 
     for (let i = 0; i < count; i++) {
-      // --- Deterministic Golden Spiral Position ---
-      
-      // Vertical distribution:
-      // We want uniform density on the conical surface.
-      // Surface area of cone slice at distance d from apex is proportional to d^2.
-      // So cumulative distribution function CDF(d) ~ d^2.
-      // Inverse CDF for uniform variable u [0,1] is d ~ sqrt(u).
-      // This means we need more points near the bottom (max d).
-      
-      // Use (i+1)/count to avoid 0 radius at exact apex
-      // Limit to 0.9 (90%) so ornaments don't hang below the tree bottom
-      const progress = Math.sqrt((i + 1) / count) * 0.9; // 0 (Top) -> 0.9 (Near Bottom)
+      const progress = Math.sqrt((i + 1) / count) * 0.9; 
       
       const r = progress * treeRadiusBase;
       const y = apexY - progress * treeHeight;
       const theta = i * goldenAngle + angleOffset;
 
-      // Convert polar to Cartesian
       const x = r * Math.cos(theta);
       const z = r * Math.sin(theta);
       
       const tPos = new THREE.Vector3(x, y, z);
       
-      // Push out slightly to sit on surface
       const pushOut = (type === 'STAR' || type === 'PHOTO') ? 1.15 : 1.08;
       tPos.multiplyScalar(pushOut);
 
-      // --- Chaos Position (Random) ---
       let cPos: THREE.Vector3;
       let chaosTilt = 0;
       
       if (type === 'PHOTO') {
-          // Special chaos arrangement for photos
           const chaosRadius = 18;
           const chaosHeightRange = 12;
           const chaosY = ((i / count) - 0.5) * chaosHeightRange;
-          // Use simple spiral for chaos too, just wider
           const chaosTheta = i * goldenAngle;
           cPos = new THREE.Vector3(chaosRadius * Math.cos(chaosTheta), chaosY, chaosRadius * Math.sin(chaosTheta));
           chaosTilt = ((i % 5) - 2) * 0.15; 
@@ -536,11 +489,10 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
       if (type === 'CANDY') {
           baseScaleVec.setScalar(0.7); 
       } else if (type === 'CRYSTAL') {
-          baseScaleVec.setScalar(0.6); // Snowflakes
+          baseScaleVec.setScalar(0.6); 
       } else if (type === 'STAR') {
           baseScaleVec.setScalar(0.7);
       } else if (type === 'BOX') {
-          // Randomized aspect ratio for gift boxes
           baseScaleVec.set(
               1.0 + Math.random() * 0.3, 
               0.7 + Math.random() * 0.4, 
@@ -575,14 +527,10 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
   }, [type]);
 
   useLayoutEffect(() => {
-     // Skip instanced logic for types that use individual meshes
      if (!meshRef.current || type === 'PHOTO' || type === 'BOX') return;
      
      data.forEach((item, i) => {
-         // If Candy, we force white so texture renders correctly.
-         // If other types, we use the random assigned color.
          const color = type === 'CANDY' ? new THREE.Color('#ffffff') : item.color;
-         
          meshRef.current!.setColorAt(i, color);
          dummy.position.copy(item.targetPos);
          dummy.scale.copy(item.targetScale);
@@ -597,8 +545,37 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
      meshRef.current.instanceMatrix.needsUpdate = true;
   }, [data, type, dummy]);
 
+  const tempVec = useMemo(() => new THREE.Vector3(), []);
+
   useFrame((state, delta) => {
-    // Skip instanced update for complex types
+    // --- Closest Photo Calculation Logic ---
+    // Only run if type is PHOTO and tracking ref is provided and we are in Chaos mode (mixFactor close to 0)
+    // We check mixFactor < 0.5 so we track relevant photos when exploded.
+    if (type === 'PHOTO' && closestPhotoRef && mixFactor < 0.5) {
+        let minDist = Infinity;
+        let closestIndex = -1;
+        
+        // Loop through data items to calculate dynamic current position
+        // This repeats some math from below but essential for accuracy
+        const t = currentMixRef.current; // Use the interpolated value
+        
+        data.forEach((item, i) => {
+            // Re-calculate position
+            tempVec.lerpVectors(item.chaosPos, item.targetPos, t);
+            // In world space (the group itself is at 0,0,0 usually, but parent group might move)
+            // Assuming Parent Group is roughly static or centered for relative distance
+            const dist = tempVec.distanceTo(camera.position);
+            
+            if (dist < minDist) {
+                minDist = dist;
+                closestIndex = i;
+            }
+        });
+        
+        closestPhotoRef.current = closestIndex;
+    }
+    // --------------------------------------
+
     if (!meshRef.current || type === 'PHOTO' || type === 'BOX') return;
 
     const speed = 2.0 * delta;
@@ -614,12 +591,11 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
       
       if (type === 'STAR' && t > 0.8) {
          dummy.lookAt(0, currentPos.y, 0); 
-         dummy.rotateZ(Math.PI / 2); // Orient star to face out
+         dummy.rotateZ(Math.PI / 2); 
       } else if (type === 'CRYSTAL' && t > 0.8) {
          dummy.lookAt(0, currentPos.y, 0); 
       } else {
          dummy.rotation.copy(item.rotation);
-         // Spin the ornaments in chaos mode
          if (t < 0.5) {
              dummy.rotation.x += delta * 0.5;
              dummy.rotation.y += delta * 0.5;
@@ -657,7 +633,6 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
       )
   }
 
-  // Use Detailed GiftBox Mesh
   if (type === 'BOX') {
       return (
           <group>

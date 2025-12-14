@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, Suspense } from 'react';
 import Experience from './components/Experience';
 import GestureController from './components/GestureController';
@@ -22,28 +23,49 @@ const App: React.FC = () => {
   const [signatureText, setSignatureText] = useState("");
   const [activePhotoUrl, setActivePhotoUrl] = useState<string | null>(null);
 
+  // Closest Photo Tracking (3D -> App communication)
+  const closestPhotoRef = useRef<number>(-1);
+  const lastPinchTime = useRef(0);
+
   // Camera Gui Visibility
   const [showCamera, setShowCamera] = useState(true);
 
   // Wrap in useCallback to prevent new function creation on every render
   const handleGesture = useCallback((data: HandGesture) => {
+    // 1. Position tracking
     if (data.isDetected) {
-        const newTarget = data.isOpen ? 0 : 1;
-        setTargetMix(prev => {
-            if (prev !== newTarget) return newTarget;
-            return prev;
-        });
-        
         inputRef.current = { 
             x: data.position.x * 1.2, 
             y: data.position.y,
             isDetected: true
         };
     } else {
-        // Mark as not detected, keep last position to avoid jumps before fade out
         inputRef.current.isDetected = false;
     }
-  }, []);
+
+    // 2. Open/Close Logic (Tree State)
+    const newTarget = data.isOpen ? 0 : 1;
+    setTargetMix(prev => {
+        if (prev !== newTarget) return newTarget;
+        return prev;
+    });
+
+    // 3. Pinch Logic (Pick Photo in Chaos Mode)
+    // Only works if in Chaos (targetMix === 0), detected a pinch, and modal isn't already open
+    if (data.isPinch && targetMix === 0 && !isSignatureOpen && userImages.length > 0) {
+        const now = Date.now();
+        // Debounce to prevent rapid fire
+        if (now - lastPinchTime.current > 1500) {
+            const index = closestPhotoRef.current;
+            if (index >= 0 && index < userImages.length) {
+                lastPinchTime.current = now;
+                setActivePhotoUrl(userImages[index]);
+                setIsSignatureOpen(true);
+            }
+        }
+    }
+
+  }, [targetMix, isSignatureOpen, userImages]);
 
   const toggleState = () => {
       setTargetMix(prev => prev === 1 ? 0 : 1);
@@ -200,6 +222,7 @@ const App: React.FC = () => {
                 inputRef={inputRef} 
                 userImages={userImages}
                 signatureText={signatureText}
+                closestPhotoRef={closestPhotoRef} // Pass Ref to track 3D distances
             />
         </Suspense>
       </div>

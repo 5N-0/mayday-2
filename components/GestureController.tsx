@@ -5,7 +5,7 @@ import * as tf from '@tensorflow/tfjs';
 import * as handpose from '@tensorflow-models/handpose';
 
 interface GestureControllerProps {
-  onGesture: (data: { isOpen: boolean; position: { x: number; y: number }, isDetected: boolean }) => void;
+  onGesture: (data: { isOpen: boolean; isPinch: boolean; position: { x: number; y: number }, isDetected: boolean }) => void;
   isGuiVisible: boolean;
 }
 
@@ -58,12 +58,8 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const handlePointerDown = (e: React.PointerEvent, action: 'drag' | 'resize') => {
       e.preventDefault();
       e.stopPropagation();
-      
-      // Allow multi-touch interaction if supported, but simple pointer events usually suffice for single drag
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
-
       setIsInteractive(true);
-      
       dragRef.current = {
           isDragging: action === 'drag',
           isResizing: action === 'resize',
@@ -79,7 +75,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const handlePointerMove = (e: React.PointerEvent) => {
       if (!isInteractive) return;
       e.preventDefault();
-
       const deltaX = e.clientX - dragRef.current.startX;
       const deltaY = e.clientY - dragRef.current.startY;
 
@@ -90,7 +85,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           });
       } else if (dragRef.current.isResizing) {
           const newW = Math.max(100, dragRef.current.startW + deltaX);
-          const newH = Math.max(75, dragRef.current.startH + deltaY); // Keep min size
+          const newH = Math.max(75, dragRef.current.startH + deltaY); 
           setGuiSize({ w: newW, h: newH });
       }
   };
@@ -116,6 +111,10 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const ratioHistory = useRef<number[]>([]); 
   const posHistory = useRef<{x:number, y:number}[]>([]); 
   const isCurrentlyOpen = useRef<boolean>(false); 
+  
+  // Pinch History for smoothing
+  const pinchHistory = useRef<boolean[]>([]);
+
   const missedFrames = useRef(0); 
 
   // 1. Handle Visibility Change
@@ -217,14 +216,14 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           const x = avgPos.x / count;
           const y = avgPos.y / count;
 
-          // Gesture Logic
-          const tips = [8, 12, 16, 20]; 
-          const bases = [5, 9, 13, 17];
-
+          // Helper: 3D Distance
           const getDist = (p1: number[], p2: number[]) => {
              return Math.sqrt(Math.pow(p1[0] - p2[0], 2) + Math.pow(p1[1] - p2[1], 2));
           };
 
+          // --- 1. Open/Close Logic ---
+          const tips = [8, 12, 16, 20]; 
+          const bases = [5, 9, 13, 17];
           let totalBaseDist = 0;
           let totalTipDist = 0;
 
@@ -248,10 +247,36 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           }
 
           const isOpen = isCurrentlyOpen.current;
-          setDebugState(isOpen ? `OPEN` : `CLOSED`);
+
+          // --- 2. Pinch Logic ---
+          // Index Tip = 8, Thumb Tip = 4
+          // Use Palm Base (0) to Middle Finger Base (9) as scale reference
+          const thumbTip = landmarks[4];
+          const indexTip = landmarks[8];
+          const middleBase = landmarks[9];
+
+          const pinchDist = getDist(thumbTip, indexTip);
+          const palmScale = getDist(wrist, middleBase);
+          
+          // Normalized Pinch distance
+          const pinchRatio = pinchDist / (palmScale || 1);
+          
+          // Pinch threshold (experimentally determined)
+          const isPinchFrame = pinchRatio < 0.25;
+          
+          // Simple debounce for pinch
+          pinchHistory.current.push(isPinchFrame);
+          if (pinchHistory.current.length > 3) pinchHistory.current.shift();
+          // Require at least 2/3 frames to be pinch to avoid flicker
+          const isPinch = pinchHistory.current.filter(Boolean).length >= 2;
+
+          let displayState = isOpen ? "OPEN" : "CLOSED";
+          if (isPinch) displayState = "PINCH 🤏";
+
+          setDebugState(displayState);
 
           if (onGestureRef.current) {
-            onGestureRef.current({ isOpen, position: { x, y }, isDetected: true });
+            onGestureRef.current({ isOpen, isPinch, position: { x, y }, isDetected: true });
           }
         } else {
           missedFrames.current++;
@@ -261,7 +286,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
               posHistory.current = []; 
               setDebugState("NO HAND");
               if (onGestureRef.current) {
-                onGestureRef.current({ isOpen: false, position: {x:0, y:0}, isDetected: false });
+                onGestureRef.current({ isOpen: false, isPinch: false, position: {x:0, y:0}, isDetected: false });
               }
           }
         }
@@ -342,7 +367,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           {/* Status Bar */}
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/90 to-transparent pt-6 pb-2 px-3 flex flex-row justify-between items-end pointer-events-none">
             <span className="text-[8px] text-[#d4af37]/80 font-luxury tracking-widest uppercase">Sensors</span>
-            <span className={`text-[9px] font-mono font-bold ${debugState.includes("OPEN") ? "text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" : "text-[#d4af37]"}`}>
+            <span className={`text-[9px] font-mono font-bold ${debugState.includes("PINCH") ? "text-red-400 animate-pulse" : debugState.includes("OPEN") ? "text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" : "text-[#d4af37]"}`}>
                 {debugState}
             </span>
           </div>

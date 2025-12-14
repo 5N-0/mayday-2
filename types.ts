@@ -1,3 +1,4 @@
+
 import { ThreeElements } from '@react-three/fiber';
 
 export type TreeState = 'CHAOS' | 'FORMED';
@@ -9,6 +10,7 @@ export interface TreeColors {
 
 export interface HandGesture {
   isOpen: boolean;
+  isPinch: boolean; // New: Pinch detection
   position: { x: number; y: number }; // Normalized -1 to 1
   isDetected: boolean;
 }
