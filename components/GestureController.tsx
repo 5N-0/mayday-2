@@ -17,9 +17,94 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const [debugState, setDebugState] = useState<string>("-");
   const [loadingMessage, setLoadingMessage] = useState("Initializing AI...");
   
-  // Force camera refresh when returning to tab (fixes iOS black screen after photo upload)
+  // Force camera refresh when returning to tab
   const [cameraKey, setCameraKey] = useState(0);
 
+  // --- Drag & Resize State ---
+  // Default values will be overwritten on mount based on screen size
+  const [guiPos, setGuiPos] = useState({ x: 24, y: 500 });
+  const [guiSize, setGuiSize] = useState({ w: 192, h: 144 });
+  const [isInteractive, setIsInteractive] = useState(false); // dragging or resizing
+
+  const dragRef = useRef<{ 
+      isDragging: boolean; 
+      isResizing: boolean; 
+      startX: number; 
+      startY: number; 
+      startLeft: number; 
+      startTop: number;
+      startW: number;
+      startH: number;
+  }>({ 
+      isDragging: false, isResizing: false, 
+      startX: 0, startY: 0, startLeft: 0, startTop: 0, startW: 0, startH: 0 
+  });
+
+  // Set initial position on mount
+  useEffect(() => {
+      // Logic to replicate "bottom-14 left-6" with responsive size
+      const isMobile = window.innerWidth < 768;
+      const initialW = isMobile ? 130 : 200; // slightly larger defaults
+      const initialH = initialW * 0.75; // 4:3 aspect ratio
+      
+      const initialX = 24; // left-6
+      const initialY = window.innerHeight - initialH - 60; // bottom-14 approx (56px) + margin
+
+      setGuiSize({ w: initialW, h: initialH });
+      setGuiPos({ x: initialX, y: initialY });
+  }, []);
+
+  // --- Interaction Handlers ---
+  const handlePointerDown = (e: React.PointerEvent, action: 'drag' | 'resize') => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Allow multi-touch interaction if supported, but simple pointer events usually suffice for single drag
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+      setIsInteractive(true);
+      
+      dragRef.current = {
+          isDragging: action === 'drag',
+          isResizing: action === 'resize',
+          startX: e.clientX,
+          startY: e.clientY,
+          startLeft: guiPos.x,
+          startTop: guiPos.y,
+          startW: guiSize.w,
+          startH: guiSize.h
+      };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+      if (!isInteractive) return;
+      e.preventDefault();
+
+      const deltaX = e.clientX - dragRef.current.startX;
+      const deltaY = e.clientY - dragRef.current.startY;
+
+      if (dragRef.current.isDragging) {
+          setGuiPos({
+              x: dragRef.current.startLeft + deltaX,
+              y: dragRef.current.startTop + deltaY
+          });
+      } else if (dragRef.current.isResizing) {
+          const newW = Math.max(100, dragRef.current.startW + deltaX);
+          const newH = Math.max(75, dragRef.current.startH + deltaY); // Keep min size
+          setGuiSize({ w: newW, h: newH });
+      }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+      if (isInteractive) {
+          setIsInteractive(false);
+          dragRef.current.isDragging = false;
+          dragRef.current.isResizing = false;
+          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      }
+  };
+
+  // --- Logic Refs ---
   const onGestureRef = useRef(onGesture);
   useEffect(() => {
     onGestureRef.current = onGesture;
@@ -33,15 +118,13 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const isCurrentlyOpen = useRef<boolean>(false); 
   const missedFrames = useRef(0); 
 
-  // 1. Handle Visibility Change (Fix for Mobile Black Screen)
+  // 1. Handle Visibility Change
   useEffect(() => {
       const handleVisibility = () => {
           if (document.visibilityState === 'visible') {
-              // Add a small delay to ensure the browser has regained resource control
-              // Incrementing key forces the Webcam component to unmount and remount completely
               setTimeout(() => {
                   setCameraKey(prev => prev + 1);
-                  setCameraError(false); // Reset error state to try again
+                  setCameraError(false); 
               }, 500);
           }
       };
@@ -57,14 +140,10 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
     const loadModel = async () => {
       try {
         if (isMounted) setLoadingMessage("Connecting to GPU...");
-        
-        // Ensure backend is ready
         await (tf as any).ready().catch(() => (tf as any).setBackend('webgl'));
         await (tf as any).ready();
         
         if (isMounted) setLoadingMessage("Downloading AI Model...");
-        
-        // CRITICAL FIX: Load from CDN to guarantee availability in production
         const net = await handpose.load();
         
         if (isMounted) {
@@ -127,7 +206,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
               return;
           }
 
-          // Normalize to -1 to 1 range
           const rawX = -1 * ((wrist[0] / video.videoWidth) * 2 - 1); 
           const rawY = -1 * ((wrist[1] / video.videoHeight) * 2 - 1);
           
@@ -201,24 +279,35 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
     }
   }, [model, loading, runDetection]);
 
-  const boxStyle = "w-28 h-36 md:w-48 md:h-36 rounded-lg border-[#d4af37]/50 bg-black/90 border overflow-hidden shadow-[0_0_20px_rgba(212,175,55,0.2)]";
-
   return (
     <div 
-      // UPDATED POSITION: Left side, above the footer
-      className={`fixed bottom-14 left-6 z-50 transition-all duration-500 ease-in-out ${
-        isGuiVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-10 pointer-events-none'
+      style={{
+          position: 'fixed',
+          left: `${guiPos.x}px`,
+          top: `${guiPos.y}px`,
+          width: `${guiSize.w}px`,
+          height: `${guiSize.h}px`,
+          touchAction: 'none' // Prevent scrolling while dragging on mobile
+      }}
+      className={`z-50 transition-opacity duration-500 ease-in-out select-none ${
+        isGuiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
+      onPointerDown={(e) => handlePointerDown(e, 'drag')}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
     >
-      <div className={`relative ${boxStyle}`}>
-          
+      <div 
+        className={`relative w-full h-full rounded-lg border-[#d4af37]/50 bg-black/90 border overflow-hidden shadow-[0_0_20px_rgba(212,175,55,0.2)] cursor-move ${isInteractive ? 'scale-[1.02] shadow-[0_0_30px_rgba(212,175,55,0.4)]' : ''} transition-shadow duration-200`}
+      >
           {cameraError ? (
              <div className="flex flex-col items-center justify-center h-full text-[#d4af37] p-2 text-center gap-2">
                 <span className="text-xl">📷</span>
                 <span className="text-[10px] font-luxury uppercase tracking-widest">Tap to Retry</span>
                 <button 
+                    onPointerDown={(e) => e.stopPropagation()} // Prevent drag on click
                     onClick={() => setCameraKey(p => p + 1)}
-                    className="px-2 py-1 bg-white/10 rounded text-[9px] hover:bg-white/20"
+                    className="px-2 py-1 bg-white/10 rounded text-[9px] hover:bg-white/20 cursor-pointer"
                 >
                     Restart
                 </button>
@@ -226,7 +315,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           ) : (
             <>
                 <Webcam
-                    key={cameraKey} // Force re-mount on visibility change
+                    key={cameraKey} 
                     ref={webcamRef}
                     mirrored={true}
                     playsInline={true} 
@@ -236,7 +325,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
                         width: { ideal: 320 },
                         height: { ideal: 240 }
                     }}
-                    className={`w-full h-full object-cover transition-opacity duration-500 ${loading ? 'opacity-20' : 'opacity-80'}`}
+                    className={`w-full h-full object-cover transition-opacity duration-500 ${loading ? 'opacity-20' : 'opacity-80'} pointer-events-none`}
                     onUserMediaError={() => setCameraError(true)}
                 />
                 {!loading && <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#d4af37]/10 to-transparent animate-scan pointer-events-none" />}
@@ -244,17 +333,26 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           )}
           
           {loading && !cameraError && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-[#d4af37] gap-2 p-4 bg-black/80 backdrop-blur-sm">
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-[#d4af37] gap-2 p-4 bg-black/80 backdrop-blur-sm pointer-events-none">
                   <div className="w-5 h-5 border-2 border-[#d4af37] border-t-transparent rounded-full animate-spin"></div>
                   <span className="text-[9px] font-luxury uppercase tracking-widest text-center animate-pulse">{loadingMessage}</span>
               </div>
           )}
           
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/90 to-transparent pt-6 pb-2 px-3 flex flex-col md:flex-row justify-end md:justify-between items-start md:items-end gap-0 md:gap-0">
-            <span className="text-[9px] md:text-[8px] text-[#d4af37]/80 font-luxury tracking-widest uppercase mb-0.5 md:mb-0">Sensors</span>
-            <span className={`text-[11px] md:text-[9px] font-mono font-bold ${debugState.includes("OPEN") ? "text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" : "text-[#d4af37]"}`}>
+          {/* Status Bar */}
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/90 to-transparent pt-6 pb-2 px-3 flex flex-row justify-between items-end pointer-events-none">
+            <span className="text-[8px] text-[#d4af37]/80 font-luxury tracking-widest uppercase">Sensors</span>
+            <span className={`text-[9px] font-mono font-bold ${debugState.includes("OPEN") ? "text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" : "text-[#d4af37]"}`}>
                 {debugState}
             </span>
+          </div>
+
+          {/* Resize Handle (Bottom Right) */}
+          <div 
+            className="absolute bottom-0 right-0 w-6 h-6 z-20 cursor-nwse-resize group flex items-end justify-end p-1"
+            onPointerDown={(e) => handlePointerDown(e, 'resize')}
+          >
+              <div className="w-2 h-2 border-r-2 border-b-2 border-[#d4af37]/50 group-hover:border-[#d4af37] transition-colors rounded-br-[1px]" />
           </div>
       </div>
       
