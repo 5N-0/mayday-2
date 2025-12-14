@@ -138,7 +138,8 @@ const PhotoFrameMesh: React.FC<{
     mixFactor: number;
     texture: THREE.Texture;
     signatureTexture?: THREE.Texture | null;
-}> = ({ item, mixFactor, texture, signatureTexture }) => {
+    isClosest?: boolean; // New prop just for visual debug if needed
+}> = ({ item, mixFactor, texture, signatureTexture, isClosest }) => {
     const groupRef = useRef<THREE.Group>(null);
     const innerRef = useRef<THREE.Group>(null); 
     const photoMatRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -204,18 +205,21 @@ const PhotoFrameMesh: React.FC<{
         
         const effectStrength = (1.0 - t);
         
+        // Dynamic scaling based on distance to camera (only in chaos)
         if (t < 0.99) {
              groupRef.current.getWorldPosition(vecWorld);
              const distToCamera = vecWorld.distanceTo(state.camera.position);
              
+             // Parallax scale effect
              const maxZoom = isSmallScreen ? 1.1 : 1.5; 
              const minZoom = 0.6;
-
              const perspectiveFactor = THREE.MathUtils.mapLinear(distToCamera, 10, 60, maxZoom, minZoom);
              const dynamicScale = lerp(1.0, perspectiveFactor, effectStrength);
+             
              vecScale.multiplyScalar(dynamicScale);
 
              if (photoMatRef.current) {
+                 // Dim distant photos
                  const brightness = THREE.MathUtils.mapLinear(distToCamera, 12, 50, 0.9, 0.2);
                  photoMatRef.current.emissiveIntensity = Math.max(0.2, brightness) * effectStrength;
              }
@@ -230,6 +234,7 @@ const PhotoFrameMesh: React.FC<{
              groupRef.current.rotateY(Math.PI); 
              innerRef.current.rotation.z = lerp(innerRef.current.rotation.z, 0, speed);
         } else {
+             // In chaos, face the camera
              groupRef.current.lookAt(state.camera.position);
              innerRef.current.rotation.z = lerp(innerRef.current.rotation.z, item.chaosTilt, speed);
         }
@@ -409,6 +414,7 @@ const getTypeOffsetIndex = (type: string) => {
 
 const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, scale = 1, userImages = [], signatureText, closestPhotoRef }) => {
   const meshRef = useRef<THREE.InstancedMesh>(null);
+  const groupRef = useRef<THREE.Group>(null); // Ref for the photo group to access its world matrix
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const currentMixRef = useRef(1);
   const { camera } = useThree();
@@ -471,6 +477,7 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
       let chaosTilt = 0;
       
       if (type === 'PHOTO') {
+          // Wider chaos for photos
           const chaosRadius = 18;
           const chaosHeightRange = 12;
           const chaosY = ((i / count) - 0.5) * chaosHeightRange;
@@ -545,26 +552,32 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
      meshRef.current.instanceMatrix.needsUpdate = true;
   }, [data, type, dummy]);
 
-  const tempVec = useMemo(() => new THREE.Vector3(), []);
+  // Temp vectors for math to avoid Garbage Collection
+  const tempLocal = useMemo(() => new THREE.Vector3(), []);
+  const tempWorld = useMemo(() => new THREE.Vector3(), []);
 
   useFrame((state, delta) => {
-    // --- Closest Photo Calculation Logic ---
-    // Only run if type is PHOTO and tracking ref is provided and we are in Chaos mode (mixFactor close to 0)
-    // We check mixFactor < 0.5 so we track relevant photos when exploded.
-    if (type === 'PHOTO' && closestPhotoRef && mixFactor < 0.5) {
+    // --- Closest Photo Calculation Logic (CORRECTED) ---
+    // Use World Coordinates to account for Tree Rotation
+    if (type === 'PHOTO' && closestPhotoRef && mixFactor < 0.5 && groupRef.current) {
         let minDist = Infinity;
         let closestIndex = -1;
         
-        // Loop through data items to calculate dynamic current position
-        // This repeats some math from below but essential for accuracy
-        const t = currentMixRef.current; // Use the interpolated value
+        const t = currentMixRef.current;
         
+        // Ensure the parent world matrix is up to date
+        groupRef.current.updateMatrixWorld();
+        const parentWorldMatrix = groupRef.current.matrixWorld;
+
         data.forEach((item, i) => {
-            // Re-calculate position
-            tempVec.lerpVectors(item.chaosPos, item.targetPos, t);
-            // In world space (the group itself is at 0,0,0 usually, but parent group might move)
-            // Assuming Parent Group is roughly static or centered for relative distance
-            const dist = tempVec.distanceTo(camera.position);
+            // 1. Calculate Local Position (lerped)
+            tempLocal.lerpVectors(item.chaosPos, item.targetPos, t);
+            
+            // 2. Transform to World Position
+            tempWorld.copy(tempLocal).applyMatrix4(parentWorldMatrix);
+            
+            // 3. Calculate distance to camera
+            const dist = tempWorld.distanceTo(camera.position);
             
             if (dist < minDist) {
                 minDist = dist;
@@ -613,8 +626,9 @@ const Ornaments: React.FC<OrnamentsProps> = ({ mixFactor, type, count, colors, s
   });
 
   if (type === 'PHOTO') {
+      // Attach ref to the group so we can get its MatrixWorld
       return (
-          <group>
+          <group ref={groupRef}>
               {data.map((item, i) => {
                   let imgSrc: string | undefined = undefined;
                   if (userImages && userImages.length > 0) {

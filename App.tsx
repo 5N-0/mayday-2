@@ -7,10 +7,9 @@ import { TreeColors, HandGesture } from './types';
 const App: React.FC = () => {
   // 1 = Formed, 0 = Chaos.
   const [targetMix, setTargetMix] = useState(1); 
-  // Default colors kept, UI control removed
   const [colors] = useState<TreeColors>({ bottom: '#022b1c', top: '#217a46' });
   
-  // inputRef now tracks detection state for physics switching
+  // Input tracking
   const inputRef = useRef({ x: 0, y: 0, isDetected: false });
   
   // Image Upload State
@@ -20,7 +19,10 @@ const App: React.FC = () => {
 
   // Signature Modal State
   const [isSignatureOpen, setIsSignatureOpen] = useState(false);
-  // Track if the modal was opened by a gesture (pinch hold) vs click
+  
+  // Interaction State Logic:
+  // isGestureHeld: True if the user is currently holding a pinch gesture to view a photo.
+  // When True, we override the tree physics (keep it dispersed).
   const [isGestureHeld, setIsGestureHeld] = useState(false);
   
   const [signatureText, setSignatureText] = useState("");
@@ -45,50 +47,52 @@ const App: React.FC = () => {
         inputRef.current.isDetected = false;
     }
 
-    // --- LOGIC REWRITE FOR "HOLD-TO-VIEW" ---
+    // --- LOGIC REWRITE FOR ROBUST "HOLD-TO-VIEW" ---
     
-    // PRIORITY 1: PINCHING (Interaction Mode)
+    // CASE A: User is PINCHING
     if (data.isPinch) {
-        // Only allow pinch interaction if the tree is dispersed (Chaos Mode)
-        // OR if we are already holding a photo (to maintain it)
+        // Only trigger if in Chaos Mode (tree dispersed)
+        // If we are already holding, we just stay in this state.
         if (targetMix === 0 || isGestureHeld) {
             
-            // If the modal isn't open yet, or we are holding it
-            // We ensure we enter "Gesture Hold" mode
-            if (!isSignatureOpen || isGestureHeld) {
+            // If starting a NEW hold (wasn't holding before)
+            if (!isGestureHeld) {
+                const index = closestPhotoRef.current;
                 
-                // If starting a new hold, find the photo
-                if (!isGestureHeld) {
-                    const index = closestPhotoRef.current;
-                    if (index >= 0 && userImages.length > 0) {
-                        setActivePhotoUrl(userImages[index]);
+                // Ensure valid index and we have images
+                if (index >= 0 && userImages.length > 0) {
+                    const img = userImages[index];
+                    if (img) {
+                        setActivePhotoUrl(img);
                         setIsSignatureOpen(true);
                         setIsGestureHeld(true);
                     }
-                } 
-                // If already holding, just keep state (implicit)
+                } else if (userImages.length === 0) {
+                    // Fallback if no images uploaded (just to show feature works)
+                    setIsSignatureOpen(true);
+                    setIsGestureHeld(true);
+                }
             }
         }
-        
-        // CRITICAL: When pinching, FREEZE tree state. 
-        // Do not allow "closed fist" detection to snap the tree shut.
+        // IMPORTANT: When pinching, we force return.
+        // This prevents the "closed hand" detection (which looks like a pinch)
+        // from triggering the tree assembly.
         return; 
     }
 
-    // PRIORITY 2: RELEASE (Exit Interaction Mode)
-    if (isGestureHeld) {
-        // We were holding a gesture, but now 'isPinch' is false (released).
-        // Smoothly close the modal.
+    // CASE B: User RELEASED the pinch (and was previously holding)
+    if (isGestureHeld && !data.isPinch) {
+        // Smoothly close the modal
         setIsSignatureOpen(false);
         setIsGestureHeld(false);
         
-        // Return early to prevent immediate tree state flip in the same frame
+        // IMPORTANT: Return early to block tree physics for one more frame
+        // preventing a "snap" back to assembly if the hand shape is ambiguous during release.
         return;
     }
 
-    // PRIORITY 3: TREE STATE CONTROL (Background Physics)
-    // Only update tree state if we are NOT looking at a photo (manual or gesture).
-    // This prevents the tree from moving distractingly while we read.
+    // CASE C: Standard Tree Control (Background Physics)
+    // Only allow tree state changes if we are NOT looking at a photo (manually or via gesture).
     if (!isSignatureOpen) {
         const newTarget = data.isOpen ? 0 : 1;
         setTargetMix(prev => {
@@ -108,8 +112,8 @@ const App: React.FC = () => {
   };
 
   const handleSignatureClick = () => {
-      // Manual click open - reset gesture held state
-      setIsGestureHeld(false); 
+      // Manual click open
+      setIsGestureHeld(false); // Not a gesture hold
       
       if (userImages.length > 0) {
           const randomImg = userImages[Math.floor(Math.random() * userImages.length)];
@@ -227,17 +231,17 @@ const App: React.FC = () => {
         </Suspense>
       </div>
 
-      {/* SIGNATURE MODAL - Persistent Render for Smooth CSS Transitions */}
+      {/* SIGNATURE MODAL - PERSISTENT RENDERING for Smooth CSS Animations */}
       <div 
         className={`absolute inset-0 z-40 flex items-center justify-center p-4 transition-all duration-500 bg-black/60 backdrop-blur-sm ${isSignatureOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       >
           <div 
-            className={`relative bg-[#f8f8f8] p-4 pb-12 shadow-[0_0_60px_rgba(255,255,255,0.3)] transform transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isSignatureOpen ? 'scale-100 translate-y-0 rotate-[-2deg]' : 'scale-75 translate-y-10 rotate-0'}`}
+            className={`relative bg-[#f8f8f8] p-4 pb-12 shadow-[0_0_60px_rgba(255,255,255,0.3)] transform transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isSignatureOpen ? 'scale-100 translate-y-0 rotate-[-2deg]' : 'scale-50 translate-y-32 rotate-0'}`}
             style={{ width: 'min(80vw, 320px)', aspectRatio: '3.5/4.2' }}
           >
               {/* Close Button */}
               <button 
-                onClick={() => setIsSignatureOpen(false)}
+                onClick={() => { setIsSignatureOpen(false); setIsGestureHeld(false); }}
                 className="absolute -top-4 -right-4 w-8 h-8 rounded-full bg-black border border-white/20 text-white flex items-center justify-center hover:bg-white hover:text-black transition-colors z-50 cursor-pointer"
               >
                   ×
@@ -245,6 +249,7 @@ const App: React.FC = () => {
 
               {/* Photo Area */}
               <div className="w-full h-[75%] bg-[#1a1a1a] overflow-hidden relative shadow-inner">
+                  {/* Keep image rendered even when closing so it animates out with the card */}
                   {activePhotoUrl ? (
                       <img src={activePhotoUrl} alt="Memory" className="w-full h-full object-cover" />
                   ) : (
@@ -269,9 +274,9 @@ const App: React.FC = () => {
               </div>
           </div>
           
-          {/* Action Button (Separate container to animate differently if needed) */}
+          {/* Action Button */}
           <div className={`absolute bottom-10 left-0 w-full flex justify-center transition-all duration-500 delay-100 ${isSignatureOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-              <button onClick={() => setIsSignatureOpen(false)} className={textButtonClass}>
+              <button onClick={() => { setIsSignatureOpen(false); setIsGestureHeld(false); }} className={textButtonClass}>
                   完成签名
               </button>
           </div>
