@@ -13,14 +13,6 @@ export interface HandGesture {
   isDetected: boolean;
 }
 
-declare global {
-  namespace JSX {
-    interface IntrinsicElements extends ThreeElements {}
-  }
-}
-
-declare module 'react' {
-  namespace JSX {
-    interface IntrinsicElements extends ThreeElements {}
-  }
-}
+// NOTE: We removed the manual JSX augmentation here because it was overwriting 
+// React's default IntrinsicElements (div, span, etc.), causing errors.
+// @react-three/fiber automatically augments JSX.IntrinsicElements when imported.

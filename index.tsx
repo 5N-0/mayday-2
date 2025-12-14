@@ -1,12 +1,13 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
+  public state = { hasError: false, error: null as Error | null };
+
   constructor(props: {children: React.ReactNode}) {
     super(props);
-    this.state = { hasError: false, error: null };
+    // State initialization is handled by the class property above
   }
 
   static getDerivedStateFromError(error: Error) {

@@ -17,6 +17,9 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const [debugState, setDebugState] = useState<string>("-");
   const [loadingMessage, setLoadingMessage] = useState("Initializing AI...");
   
+  // Force camera refresh when returning to tab (fixes iOS black screen after photo upload)
+  const [cameraKey, setCameraKey] = useState(0);
+
   const onGestureRef = useRef(onGesture);
   useEffect(() => {
     onGestureRef.current = onGesture;
@@ -30,7 +33,24 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const isCurrentlyOpen = useRef<boolean>(false); 
   const missedFrames = useRef(0); 
 
-  // Load Model
+  // 1. Handle Visibility Change (Fix for Mobile Black Screen)
+  useEffect(() => {
+      const handleVisibility = () => {
+          if (document.visibilityState === 'visible') {
+              // Add a small delay to ensure the browser has regained resource control
+              // Incrementing key forces the Webcam component to unmount and remount completely
+              setTimeout(() => {
+                  setCameraKey(prev => prev + 1);
+                  setCameraError(false); // Reset error state to try again
+              }, 500);
+          }
+      };
+      
+      document.addEventListener("visibilitychange", handleVisibility);
+      return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
+  // 2. Load Model
   useEffect(() => {
     let isMounted = true;
     
@@ -40,14 +60,11 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
         
         // Ensure backend is ready
         await (tf as any).ready().catch(() => (tf as any).setBackend('webgl'));
-        
-        // Ensure backend is ready
         await (tf as any).ready();
         
         if (isMounted) setLoadingMessage("Downloading AI Model...");
         
         // CRITICAL FIX: Load from CDN to guarantee availability in production
-        // Do NOT use local paths unless you are 100% sure the .bin files are in public/models
         const net = await handpose.load();
         
         if (isMounted) {
@@ -58,13 +75,11 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
         console.error("Failed to load handpose model:", err);
         if (isMounted) {
             setLoadingMessage("AI Unavailable");
-            // Don't crash, just stop loading
             setLoading(false);
         }
       }
     };
 
-    // Timeout safety - if model takes too long, stop blocking UI
     const timeoutId = setTimeout(() => {
         if (loading && isMounted) {
             setLoadingMessage("Taking longer than expected...");
@@ -79,13 +94,11 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
     };
   }, []);
 
-  // Loop
+  // 3. Detection Loop
   const runDetection = useCallback(async () => {
-    // Only run if model exists and camera is ready
     if (model && webcamRef.current && webcamRef.current.video && webcamRef.current.video.readyState === 4) {
       
       const now = Date.now();
-      // Throttle detection to every 100ms (~10 FPS) to save battery/performance
       if (now - lastDetectionTime.current < 100) {
         requestAnimationFrame(runDetection);
         return;
@@ -94,7 +107,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
 
       const video = webcamRef.current.video;
       
-      // Safety Check: Video Dimensions
       if (video.videoWidth === 0 || video.videoHeight === 0) {
           requestAnimationFrame(runDetection);
           return;
@@ -115,7 +127,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
               return;
           }
 
-          // --- 1. Position Calculation ---
           // Normalize to -1 to 1 range
           const rawX = -1 * ((wrist[0] / video.videoWidth) * 2 - 1); 
           const rawY = -1 * ((wrist[1] / video.videoHeight) * 2 - 1);
@@ -128,7 +139,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           const x = avgPos.x / count;
           const y = avgPos.y / count;
 
-          // --- 2. Gesture Detection ---
+          // Gesture Logic
           const tips = [8, 12, 16, 20]; 
           const bases = [5, 9, 13, 17];
 
@@ -152,7 +163,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           if (ratioHistory.current.length > 5) ratioHistory.current.shift();
           const smoothedRatio = ratioHistory.current.reduce((a,b) => a+b, 0) / ratioHistory.current.length;
 
-          // Hysteresis threshold
           if (!isCurrentlyOpen.current && smoothedRatio > 1.6) {
              isCurrentlyOpen.current = true;
           } else if (isCurrentlyOpen.current && smoothedRatio < 1.2) {
@@ -160,8 +170,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           }
 
           const isOpen = isCurrentlyOpen.current;
-          const stateLabel = isOpen ? `OPEN` : `CLOSED`;
-          setDebugState(stateLabel);
+          setDebugState(isOpen ? `OPEN` : `CLOSED`);
 
           if (onGestureRef.current) {
             onGestureRef.current({ isOpen, position: { x, y }, isDetected: true });
@@ -179,7 +188,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           }
         }
       } catch (err) {
-        // Suppress ephemeral errors during heavy load
+        // Suppress ephemeral errors
       }
     }
     requestAnimationFrame(runDetection);
@@ -196,8 +205,9 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
 
   return (
     <div 
-      className={`fixed bottom-4 right-4 z-50 transition-all duration-500 ease-in-out ${
-        isGuiVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'
+      // UPDATED POSITION: Left side, above the footer
+      className={`fixed bottom-14 left-6 z-50 transition-all duration-500 ease-in-out ${
+        isGuiVisible ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-10 pointer-events-none'
       }`}
     >
       <div className={`relative ${boxStyle}`}>
@@ -205,14 +215,20 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           {cameraError ? (
              <div className="flex flex-col items-center justify-center h-full text-[#d4af37] p-2 text-center gap-2">
                 <span className="text-xl">📷</span>
-                <span className="text-[10px] font-luxury uppercase tracking-widest">Access Denied</span>
+                <span className="text-[10px] font-luxury uppercase tracking-widest">Tap to Retry</span>
+                <button 
+                    onClick={() => setCameraKey(p => p + 1)}
+                    className="px-2 py-1 bg-white/10 rounded text-[9px] hover:bg-white/20"
+                >
+                    Restart
+                </button>
              </div>
           ) : (
             <>
                 <Webcam
+                    key={cameraKey} // Force re-mount on visibility change
                     ref={webcamRef}
                     mirrored={true}
-                    // IMPORTANT for Safari on iOS: playsInline and muted are required for auto-play
                     playsInline={true} 
                     muted={true}
                     videoConstraints={{ 

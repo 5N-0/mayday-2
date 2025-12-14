@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, Suspense } from 'react';
 import Experience from './components/Experience';
 import GestureController from './components/GestureController';
@@ -74,8 +73,10 @@ const App: React.FC = () => {
           
           // Defer processing to next tick to allow React to render the loading screen first
           setTimeout(() => {
-              const files = Array.from(e.target.files!).slice(0, 30); // Limit to 30
-              const urls = files.map(file => URL.createObjectURL(file));
+              const fileList = e.target.files;
+              const files = Array.from(fileList || []) as File[];
+              const slicedFiles = files.slice(0, 30); // Limit to 30
+              const urls = slicedFiles.map(file => URL.createObjectURL(file));
               
               setUserImages(prev => {
                   // Revoke old URLs to prevent memory leaks
