@@ -21,10 +21,9 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const [cameraKey, setCameraKey] = useState(0);
 
   // --- Drag & Resize State ---
-  // Default values will be overwritten on mount based on screen size
   const [guiPos, setGuiPos] = useState({ x: 24, y: 500 });
   const [guiSize, setGuiSize] = useState({ w: 192, h: 144 });
-  const [isInteractive, setIsInteractive] = useState(false); // dragging or resizing
+  const [isInteractive, setIsInteractive] = useState(false); 
 
   const dragRef = useRef<{ 
       isDragging: boolean; 
@@ -40,21 +39,18 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
       startX: 0, startY: 0, startLeft: 0, startTop: 0, startW: 0, startH: 0 
   });
 
-  // Set initial position on mount
   useEffect(() => {
-      // Logic to replicate "bottom-14 left-6" with responsive size
       const isMobile = window.innerWidth < 768;
-      const initialW = isMobile ? 130 : 200; // slightly larger defaults
-      const initialH = initialW * 0.75; // 4:3 aspect ratio
+      const initialW = isMobile ? 130 : 200; 
+      const initialH = initialW * 0.75; 
       
-      const initialX = 24; // left-6
-      const initialY = window.innerHeight - initialH - 60; // bottom-14 approx (56px) + margin
+      const initialX = 24; 
+      const initialY = window.innerHeight - initialH - 60; 
 
       setGuiSize({ w: initialW, h: initialH });
       setGuiPos({ x: initialX, y: initialY });
   }, []);
 
-  // --- Interaction Handlers ---
   const handlePointerDown = (e: React.PointerEvent, action: 'drag' | 'resize') => {
       e.preventDefault();
       e.stopPropagation();
@@ -99,7 +95,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
       }
   };
 
-  // --- Logic Refs ---
   const onGestureRef = useRef(onGesture);
   useEffect(() => {
     onGestureRef.current = onGesture;
@@ -111,13 +106,9 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
   const ratioHistory = useRef<number[]>([]); 
   const posHistory = useRef<{x:number, y:number}[]>([]); 
   const isCurrentlyOpen = useRef<boolean>(false); 
-  
-  // Pinch History for smoothing
   const pinchHistory = useRef<boolean[]>([]);
-
   const missedFrames = useRef(0); 
 
-  // 1. Handle Visibility Change
   useEffect(() => {
       const handleVisibility = () => {
           if (document.visibilityState === 'visible') {
@@ -127,15 +118,12 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
               }, 500);
           }
       };
-      
       document.addEventListener("visibilitychange", handleVisibility);
       return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
-  // 2. Load Model
   useEffect(() => {
     let isMounted = true;
-    
     const loadModel = async () => {
       try {
         if (isMounted) setLoadingMessage("Connecting to GPU...");
@@ -157,34 +145,29 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
         }
       }
     };
-
     const timeoutId = setTimeout(() => {
         if (loading && isMounted) {
             setLoadingMessage("Taking longer than expected...");
         }
     }, 6000);
-
     loadModel();
-
     return () => {
         isMounted = false;
         clearTimeout(timeoutId);
     };
   }, []);
 
-  // 3. Detection Loop
   const runDetection = useCallback(async () => {
     if (model && webcamRef.current && webcamRef.current.video && webcamRef.current.video.readyState === 4) {
       
       const now = Date.now();
-      if (now - lastDetectionTime.current < 100) {
+      if (now - lastDetectionTime.current < 80) { // Slightly faster check
         requestAnimationFrame(runDetection);
         return;
       }
       lastDetectionTime.current = now;
 
       const video = webcamRef.current.video;
-      
       if (video.videoWidth === 0 || video.videoHeight === 0) {
           requestAnimationFrame(runDetection);
           return;
@@ -195,7 +178,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
 
         if (predictions.length > 0) {
           missedFrames.current = 0;
-          
           const hand = predictions[0];
           const landmarks = hand.landmarks;
           const wrist = landmarks[0];
@@ -209,7 +191,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           const rawY = -1 * ((wrist[1] / video.videoHeight) * 2 - 1);
           
           posHistory.current.push({x: rawX, y: rawY});
-          if (posHistory.current.length > 8) posHistory.current.shift(); 
+          if (posHistory.current.length > 6) posHistory.current.shift(); 
 
           const avgPos = posHistory.current.reduce((acc, curr) => ({ x: acc.x + curr.x, y: acc.y + curr.y }), {x:0, y:0});
           const count = posHistory.current.length;
@@ -240,6 +222,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           if (ratioHistory.current.length > 5) ratioHistory.current.shift();
           const smoothedRatio = ratioHistory.current.reduce((a,b) => a+b, 0) / ratioHistory.current.length;
 
+          // Standard Open/Close Hysteresis
           if (!isCurrentlyOpen.current && smoothedRatio > 1.6) {
              isCurrentlyOpen.current = true;
           } else if (isCurrentlyOpen.current && smoothedRatio < 1.2) {
@@ -248,30 +231,31 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
 
           const isOpen = isCurrentlyOpen.current;
 
-          // --- 2. Pinch Logic ---
-          // Index Tip = 8, Thumb Tip = 4
-          // Use Palm Base (0) to Middle Finger Base (9) as scale reference
+          // --- 2. Pinch / OK Sign Logic ---
+          // Thumb Tip = 4, Index Tip = 8
           const thumbTip = landmarks[4];
           const indexTip = landmarks[8];
-          const middleBase = landmarks[9];
+          const middleBase = landmarks[9]; // Use middle finger base as a scale reference
 
           const pinchDist = getDist(thumbTip, indexTip);
-          const palmScale = getDist(wrist, middleBase);
+          const palmScale = getDist(wrist, middleBase) || 50; // Fallback size if measurement fails
           
-          // Normalized Pinch distance
-          const pinchRatio = pinchDist / (palmScale || 1);
+          const pinchRatio = pinchDist / palmScale;
           
-          // Pinch threshold (experimentally determined)
-          const isPinchFrame = pinchRatio < 0.25;
+          // SIGNIFICANTLY RELAXED THRESHOLD
+          // 0.5 means tips are within half a palm's length of each other.
+          // This covers "OK" sign and "Pinch" comfortably.
+          const isPinchFrame = pinchRatio < 0.5;
           
-          // Simple debounce for pinch
           pinchHistory.current.push(isPinchFrame);
-          if (pinchHistory.current.length > 3) pinchHistory.current.shift();
-          // Require at least 2/3 frames to be pinch to avoid flicker
-          const isPinch = pinchHistory.current.filter(Boolean).length >= 2;
+          if (pinchHistory.current.length > 4) pinchHistory.current.shift();
+          
+          // Require steady detection (at least 2/4 frames) to prevent flicker, but responsive enough
+          const pinchCount = pinchHistory.current.filter(Boolean).length;
+          const isPinch = pinchCount >= 2;
 
-          let displayState = isOpen ? "OPEN" : "CLOSED";
-          if (isPinch) displayState = "PINCH 🤏";
+          let displayState = isOpen ? "OPEN 🖐" : "CLOSED ✊";
+          if (isPinch) displayState = "PINCH/OK 👌";
 
           setDebugState(displayState);
 
@@ -282,8 +266,6 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           missedFrames.current++;
           if (missedFrames.current > 5) {
               isCurrentlyOpen.current = false; 
-              ratioHistory.current = []; 
-              posHistory.current = []; 
               setDebugState("NO HAND");
               if (onGestureRef.current) {
                 onGestureRef.current({ isOpen: false, isPinch: false, position: {x:0, y:0}, isDetected: false });
@@ -312,7 +294,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           top: `${guiPos.y}px`,
           width: `${guiSize.w}px`,
           height: `${guiSize.h}px`,
-          touchAction: 'none' // Prevent scrolling while dragging on mobile
+          touchAction: 'none'
       }}
       className={`z-50 transition-opacity duration-500 ease-in-out select-none ${
         isGuiVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
@@ -330,7 +312,7 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
                 <span className="text-xl">📷</span>
                 <span className="text-[10px] font-luxury uppercase tracking-widest">Tap to Retry</span>
                 <button 
-                    onPointerDown={(e) => e.stopPropagation()} // Prevent drag on click
+                    onPointerDown={(e) => e.stopPropagation()} 
                     onClick={() => setCameraKey(p => p + 1)}
                     className="px-2 py-1 bg-white/10 rounded text-[9px] hover:bg-white/20 cursor-pointer"
                 >
@@ -367,12 +349,12 @@ const GestureController: React.FC<GestureControllerProps> = ({ onGesture, isGuiV
           {/* Status Bar */}
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/90 to-transparent pt-6 pb-2 px-3 flex flex-row justify-between items-end pointer-events-none">
             <span className="text-[8px] text-[#d4af37]/80 font-luxury tracking-widest uppercase">Sensors</span>
-            <span className={`text-[9px] font-mono font-bold ${debugState.includes("PINCH") ? "text-red-400 animate-pulse" : debugState.includes("OPEN") ? "text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" : "text-[#d4af37]"}`}>
+            <span className={`text-[9px] font-mono font-bold ${debugState.includes("OK") ? "text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)] animate-pulse" : debugState.includes("OPEN") ? "text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.8)]" : "text-[#d4af37]"}`}>
                 {debugState}
             </span>
           </div>
 
-          {/* Resize Handle (Bottom Right) */}
+          {/* Resize Handle */}
           <div 
             className="absolute bottom-0 right-0 w-6 h-6 z-20 cursor-nwse-resize group flex items-end justify-end p-1"
             onPointerDown={(e) => handlePointerDown(e, 'resize')}

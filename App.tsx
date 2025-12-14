@@ -43,27 +43,38 @@ const App: React.FC = () => {
         inputRef.current.isDetected = false;
     }
 
+    // --- LOGIC UPDATE ---
+    // If we are pinching, we are "interacting" with an object (photo).
+    // In this case, we DO NOT want to update the Tree State (Assemble/Disperse).
+    // Usually a pinch looks like a "closed hand" geometrically, which would trigger Assembly.
+    // By checking isPinch first, we block that unintentional state change.
+    
+    if (data.isPinch) {
+        // --- PINCH INTERACTION LOGIC ---
+        // Only works if in Chaos (targetMix === 0), and modal isn't already open
+        if (targetMix === 0 && !isSignatureOpen && userImages.length > 0) {
+            const now = Date.now();
+            if (now - lastPinchTime.current > 1500) {
+                const index = closestPhotoRef.current;
+                // Double check index validity
+                if (index >= 0 && index < userImages.length) {
+                    lastPinchTime.current = now;
+                    setActivePhotoUrl(userImages[index]);
+                    setIsSignatureOpen(true);
+                }
+            }
+        }
+        // IMPORTANT: Return early so we don't accidentally close the tree
+        return; 
+    }
+
     // 2. Open/Close Logic (Tree State)
+    // Only run this if NOT pinching
     const newTarget = data.isOpen ? 0 : 1;
     setTargetMix(prev => {
         if (prev !== newTarget) return newTarget;
         return prev;
     });
-
-    // 3. Pinch Logic (Pick Photo in Chaos Mode)
-    // Only works if in Chaos (targetMix === 0), detected a pinch, and modal isn't already open
-    if (data.isPinch && targetMix === 0 && !isSignatureOpen && userImages.length > 0) {
-        const now = Date.now();
-        // Debounce to prevent rapid fire
-        if (now - lastPinchTime.current > 1500) {
-            const index = closestPhotoRef.current;
-            if (index >= 0 && index < userImages.length) {
-                lastPinchTime.current = now;
-                setActivePhotoUrl(userImages[index]);
-                setIsSignatureOpen(true);
-            }
-        }
-    }
 
   }, [targetMix, isSignatureOpen, userImages]);
 
